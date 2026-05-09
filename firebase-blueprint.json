@@ -1,0 +1,94 @@
+{
+  "entities": {
+    "ServiceRecord": {
+      "title": "Service Record",
+      "description": "A record of a technical service job.",
+      "type": "object",
+      "properties": {
+        "serviceId": { "type": "string", "description": "Human readable ID like 253016" },
+        "status": { "type": "string" },
+        "customerType": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone1": { "type": "string" },
+        "customerPhone2": { "type": "string" },
+        "customerCity": { "type": "string" },
+        "customerDistrict": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "customerTaxNo": { "type": "string" },
+        "availableDate": { "type": "string" },
+        "availableTimeStart": { "type": "string" },
+        "availableTimeEnd": { "type": "string" },
+        "deviceBrand": { "type": "string" },
+        "deviceType": { "type": "string" },
+        "deviceModel": { "type": "string" },
+        "deviceSerialNo": { "type": "string" },
+        "faultDescription": { "type": "string" },
+        "warrantyYears": { "type": "number" },
+        "technicianName": { "type": "string" },
+        "operatorNote": { "type": "string" },
+        "actionsTaken": { "type": "string" },
+        "partsUsed": { "type": "string" },
+        "repairPrice": { "type": "number" },
+        "repairEndDate": { "type": "string" },
+        "customerSignature": { "type": "string" },
+        "technicianSignature": { "type": "string" },
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "createdAt", "updatedAt"]
+    },
+    "ServiceLog": {
+      "title": "Service Log",
+      "description": "A log entry for a service record.",
+      "type": "object",
+      "properties": {
+        "actionName": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actionName", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Financial Transaction",
+      "description": "A payment or transaction for a service.",
+      "type": "object",
+      "properties": {
+        "actor": { "type": "string" },
+        "method": { "type": "string" },
+        "status": { "type": "string" },
+        "amount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["amount", "createdAt"]
+    },
+    "Photo": {
+      "title": "Photo",
+      "description": "A photo attached to a service.",
+      "type": "object",
+      "properties": {
+        "url": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["url", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/serviceRecords/{recordId}": {
+      "schema": "ServiceRecord",
+      "description": "Stores all service records."
+    },
+    "/serviceRecords/{recordId}/logs/{logId}": {
+      "schema": "ServiceLog",
+      "description": "Logs for a specific service record."
+    },
+    "/serviceRecords/{recordId}/transactions/{txId}": {
+      "schema": "Transaction",
+      "description": "Transactions for a specific service record."
+    },
+    "/serviceRecords/{recordId}/photos/{photoId}": {
+      "schema": "Photo",
+      "description": "Photos for a specific service record."
+    }
+  }
+}

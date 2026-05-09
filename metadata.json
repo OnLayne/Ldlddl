@@ -1,0 +1,8 @@
+{
+  "name": "Bölge Merkez Teknik Servis Pro",
+  "description": "Sesli komut, AI arıza tanısı ve WhatsApp entegrasyonlu gelişmiş teknik servis yönetim sistemi",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
