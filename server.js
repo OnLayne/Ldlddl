@@ -17,31 +17,7 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  app.post("/api/ai/diagnose", async (req, res) => {
-    const { deviceType, brand, model, faultDescription } = req.body;
-    
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "Gemini API key is not configured" });
-    }
 
-    try {
-      const { GoogleGenerativeAI } = await import("@google/genai");
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model_ai = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      
-      const prompt = `Sen bir teknik servis uzmanısın. Şu cihaz ve arıza için olası tanıları ve çözüm adımlarını (parça değişimi, kontrol noktaları vb.) madde madde ve kısa bir şekilde öner:
-      Cihaz Türü: ${deviceType}
-      Marka/Model: ${brand} ${model}
-      Arıza Açıklaması: ${faultDescription}`;
-
-      const result = await model_ai.generateContent(prompt);
-      const response = await result.response;
-      res.json({ suggestion: response.text() });
-    } catch (error) {
-      console.error('AI Error:', error);
-      res.status(500).json({ error: "Yapay zeka analizi sırasında bir hata oluştu" });
-    }
-  });
 
   // Example API route
   app.get("/api/example", (req, res) => {

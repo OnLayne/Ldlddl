@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../lib/AuthContext';
-import { ServiceRecord, ServiceLog, Transaction, Photo } from '../types';
+import { ServiceRecord, ServiceLog, Transaction, Photo, PdfLog } from '../types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,10 +11,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Mic, MicOff, ClipboardCopy, Share2, User, Settings, CheckCircle2, Edit, Clock, DollarSign, Camera, PenTool, Save, Printer, Smartphone, CalendarDays, Trash2, X, Eye, Sparkles, MessageSquare } from 'lucide-react';
+import { ClipboardCopy, Share2, User, Settings, CheckCircle2, Edit, Clock, DollarSign, Camera, PenTool, Save, Printer, Smartphone, CalendarDays, Trash2, X, Eye, Sparkles, MessageSquare } from 'lucide-react';
 import { format, addYears, differenceInDays, parseISO } from 'date-fns';
 import SignatureCanvas from 'react-signature-canvas';
-import { PdfTemplate } from '../components/pdf/PdfTemplate';
+import { PdfTemplate, PdfSettings, defaultPdfSettings, PdfTheme } from '../components/pdf/PdfTemplate';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 
@@ -26,6 +26,7 @@ export function ServiceDetail() {
   const [logs, setLogs] = useState<ServiceLog[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [pdfLogs, setPdfLogs] = useState<PdfLog[]>([]);
   
   // Edit states
   const [notes, setNotes] = useState({
@@ -71,69 +72,11 @@ export function ServiceDetail() {
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
-  const [recordingField, setRecordingField] = useState<'faultDescription' | 'faultDiagnosis' | 'actionsTaken' | 'partsUsed' | null>(null);
-  const recognitionRef = useRef<any>(null);
-
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition && !recognitionRef.current) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'tr-TR';
-      
-      recognition.onend = () => {
-        setRecordingField(null);
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        if (event.error !== 'no-speech' && event.error !== 'aborted') {
-          toast.error("Ses tanıma hatası: " + event.error);
-        }
-        setRecordingField(null);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, []);
-
-  // Update event listener when recordingField changes
-  useEffect(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript + ' ';
-          }
-        }
-        if (finalTranscript && recordingField) {
-          setNotes((prev: any) => ({ ...prev, [recordingField]: (prev[recordingField] || '') + finalTranscript }));
-        }
-      };
-    }
-  }, [recordingField]);
-
-  const toggleRecording = (field: 'faultDiagnosis' | 'actionsTaken' | 'partsUsed') => {
-    if (!recognitionRef.current) {
-      toast.error('Tarayıcınız ses tanımayı desteklemiyor (Chrome/Safari tavsiye edilir).');
-      return;
-    }
-
-    if (recordingField === field) {
-      recognitionRef.current.stop();
-      setRecordingField(null);
-      toast.info('Ses kaydı durduruldu');
-    } else {
-      if (recordingField) recognitionRef.current.stop();
-      setRecordingField(field);
-      recognitionRef.current.start();
-      toast.success('Ses kaydı başladı, konuşabilirsiniz...');
-    }
-  };
+  const [isPdfSettingsOpen, setIsPdfSettingsOpen] = useState(false);
+  const [pdfSettings, setPdfSettings] = useState<PdfSettings>(() => {
+    const saved = localStorage.getItem('pdfSettings');
+    return saved ? JSON.parse(saved) : defaultPdfSettings;
+  });
 
   useEffect(() => {
     if (!id || !user) return;
@@ -158,36 +101,55 @@ export function ServiceDetail() {
     const qLogs = query(collection(db, `serviceRecords/${id}/logs`), orderBy('createdAt', 'desc'));
     const unsubscribeLogs = onSnapshot(qLogs, (snap) => {
       setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })) as ServiceLog[]);
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `serviceRecords/${id}/logs`));
 
     // Listen to transactions
     const qTx = query(collection(db, `serviceRecords/${id}/transactions`), orderBy('createdAt', 'desc'));
     const unsubscribeTx = onSnapshot(qTx, (snap) => {
       setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Transaction[]);
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `serviceRecords/${id}/transactions`));
 
     // Listen to photos
     const qPhotos = query(collection(db, `serviceRecords/${id}/photos`), orderBy('createdAt', 'desc'));
     const unsubscribePhotos = onSnapshot(qPhotos, (snap) => {
       setPhotos(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Photo[]);
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `serviceRecords/${id}/photos`));
+
+    // Listen to pdf history
+    const qPdfLogs = query(collection(db, `serviceRecords/${id}/pdfHistory`), orderBy('createdAt', 'desc'));
+    const unsubscribePdfLogs = onSnapshot(qPdfLogs, (snap) => {
+      setPdfLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })) as PdfLog[]);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, `serviceRecords/${id}/pdfHistory`));
 
     return () => {
       unsubscribeRecord();
       unsubscribeLogs();
       unsubscribeTx();
       unsubscribePhotos();
+      unsubscribePdfLogs();
     };
   }, [id, user]);
 
   const handleStatusChange = async (newStatus: string) => {
-    if (!id || !user) return;
+    if (!id || !user || !record) return;
+    const oldStatus = record.status || 'Belirtilmemiş';
     setNotes(prev => ({ ...prev, status: newStatus }));
     try {
-      await updateDoc(doc(db, 'serviceRecords', id), {
+      const updateData: any = {
         status: newStatus,
         updatedAt: new Date().toISOString()
+      };
+      if (newStatus === 'Cihaz Teslim Edildi' && !record.warrantyStartDate) {
+        updateData.warrantyStartDate = new Date().toISOString();
+      }
+      await updateDoc(doc(db, 'serviceRecords', id), updateData);
+      
+      await addDoc(collection(db, `serviceRecords/${id}/logs`), {
+        actionName: 'Durum Güncelleme',
+        description: `Servis durumu "${oldStatus}" -> "${newStatus}"`,
+        createdAt: new Date().toISOString()
       });
+      
       toast.success('Durum güncellendi');
     } catch (e) {
       toast.error('Durum güncellenemedi');
@@ -206,11 +168,41 @@ export function ServiceDetail() {
         repairEndDate: notes.repairEndDate,
         updatedAt: new Date().toISOString()
       });
+      
+      await addDoc(collection(db, `serviceRecords/${id}/logs`), {
+        actionName: 'Not/Detay Güncelleme',
+        description: `Teknisyen notları ve detaylar güncellendi.`,
+        createdAt: new Date().toISOString()
+      });
+
       toast.success('Notlar kaydedildi');
     } catch (e) {
       toast.error('Kaydedilemedi');
     }
   };
+
+  useEffect(() => {
+    if (!isSigOpen) return;
+    const handleResize = () => {
+      if (sigPad.current) {
+        const canvas = sigPad.current.getCanvas();
+        const parent = canvas.parentElement;
+        if (parent) {
+          const ratio = Math.max(window.devicePixelRatio || 1, 1);
+          canvas.width = parent.offsetWidth * ratio;
+          canvas.height = parent.offsetHeight * ratio;
+          canvas.getContext('2d').scale(ratio, ratio);
+          sigPad.current.clear();
+        }
+      }
+    };
+    const t = setTimeout(handleResize, 100);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isSigOpen]);
 
   const handleSaveSignature = async () => {
     if (!id || !sigType || !sigPad.current) return;
@@ -232,6 +224,8 @@ export function ServiceDetail() {
   };
 
   const handleGeneratePdfBlob = async (): Promise<Blob | null> => {
+    // Save current settings before generating if needed
+    localStorage.setItem('pdfSettings', JSON.stringify(pdfSettings));
     if (!pdfRef.current) return null;
     setIsGeneratingPdf(true);
     const loadingToast = toast.loading('PDF oluşturuluyor, lütfen bekleyin...');
@@ -285,6 +279,14 @@ export function ServiceDetail() {
         heightLeft -= pageHeight;
       }
       
+      // Log generation
+      if (id) {
+          await addDoc(collection(db, `serviceRecords/${id}/pdfHistory`), {
+              createdAt: new Date().toISOString(),
+              operator: user?.email || 'Bilinmiyor'
+          });
+      }
+      
       toast.dismiss(loadingToast);
       return pdf.output('blob');
     } catch (e) {
@@ -314,10 +316,29 @@ export function ServiceDetail() {
     toast.success('PDF İndirildi');
   };
 
+  const handleEditPdfLog = async (log: PdfLog) => {
+    try {
+      const newType = log.type === 'Intake' ? 'Delivery' : 'Intake';
+      await updateDoc(doc(db, `serviceRecords/${id}/pdfHistory`, log.id), {
+        type: newType
+      });
+      toast.success(`Fiş türü ${newType} olarak güncellendi.`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `serviceRecords/${id}/pdfHistory/${log.id}`);
+    }
+  };
+
   const handleSharePdf = async () => {
     const blob = await handleGeneratePdfBlob();
     if (!blob || !record) return;
     
+    // Automation: Automatically send WA message
+    if (record.customerPhone1) {
+        const cleanPhone = record.customerPhone1.replace(/\D/g, '');
+        const text = `Sayın ${record.customerName}, #${record.serviceId} numaralı servis formunuz oluşturulmuştur. Lütfen ekteki dosyayı inceleyiniz.`;
+        window.open(`https://wa.me/90${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+    }
+
     const customer = record.customerName.trim().replace(/\s+/g, '_');
     const brand = record.deviceBrand.trim().replace(/\s+/g, '_');
     const fileName = `${customer}_${brand}_TeknikServisFormu_#${record.serviceId}.pdf`;
@@ -355,12 +376,12 @@ export function ServiceDetail() {
     window.open(`https://wa.me/90${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  const handleSendSignLink = () => {
+  const handleSendSignLink = (forced: boolean = false) => {
     if (!record?.customerPhone1 || !id) {
       toast.error('Müşteri telefonu eksik');
       return;
     }
-    const signUrl = `${window.location.origin}/sign/${id}`;
+    const signUrl = `${window.location.origin}/sign/${id}${forced ? '?forced=true' : ''}`;
     
     // Copy to clipboard first
     navigator.clipboard.writeText(signUrl).then(() => {
@@ -368,7 +389,7 @@ export function ServiceDetail() {
     });
 
     const cleanPhone = record.customerPhone1.replace(/\D/g, '');
-    const text = `Sayın ${record.customerName}, #${record.serviceId} numaralı servis kaydınız tamamlanmıştır. Lütfen aşağıdaki linkten servis detaylarını kontrol edip onaylayınız:\n\n${signUrl}`;
+    const text = `Sayın ${record.customerName}, #${record.serviceId} numaralı servis kaydınız için imza bekleniyor. Lütfen aşağıdaki linkten onaylayınız:\n\n${signUrl}`;
     window.open(`https://wa.me/90${cleanPhone.startsWith('0') ? cleanPhone.slice(1) : cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -421,41 +442,6 @@ export function ServiceDetail() {
       toast.success('Kayıt silindi');
       navigate('/');
     } catch(e) { handleFirestoreError(e, OperationType.DELETE, `serviceRecords/${id}`); }
-  };
-
-  const handleAiDiagnosis = async () => {
-    if (!record?.faultDescription) {
-      toast.error('Önce bir arıza açıklaması girilmelidir.');
-      return;
-    }
-    
-    setIsAiLoading(true);
-    setAiSuggestion(null);
-    try {
-      const response = await fetch('/api/ai/diagnose', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceType: record.deviceType,
-          brand: record.deviceBrand,
-          model: record.deviceModel,
-          faultDescription: record.faultDescription
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'AI analizi başarısız oldu');
-      }
-
-      const data = await response.json();
-      setAiSuggestion(data.suggestion || 'Öneri oluşturulamadı.');
-    } catch (error) {
-      console.error('AI Error:', error);
-      toast.error('Yapay zeka asistanı şu an yanıt veremiyor.');
-    } finally {
-      setIsAiLoading(false);
-    }
   };
 
   const handleWhatsAppDirect = () => {
@@ -516,9 +502,9 @@ export function ServiceDetail() {
 
   if (!record) return <div className="p-4 text-center mt-10">Yükleniyor...</div>;
 
-  const calculateWarrantyInfo = (createdAt: string, years: number) => {
+  const calculateWarrantyInfo = (createdAt: string, warrantyStartDate: string | undefined, years: number) => {
     if (!years || years <= 0) return 'Garantisi Yok veya Bitti';
-    const startDate = parseISO(createdAt);
+    const startDate = parseISO(warrantyStartDate || createdAt);
     const endDate = addYears(startDate, years);
     const today = new Date();
     // Reset time to start of day for accurate day difference
@@ -672,7 +658,7 @@ export function ServiceDetail() {
             <div>
               <Label className="text-xs text-muted-foreground uppercase">Garanti Bitiş</Label>
               <div className="font-medium text-green-400">
-                {calculateWarrantyInfo(record.createdAt, record.warrantyYears)}
+                {calculateWarrantyInfo(record.createdAt, record.warrantyStartDate, record.warrantyYears)}
               </div>
             </div>
           </div>
@@ -689,65 +675,22 @@ export function ServiceDetail() {
             <SelectValue placeholder="Durum seç" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Teknisyen Yönlendirildi">Teknisyen Yönlendirildi</SelectItem>
-            <SelectItem value="Yerinde Bakım Yapıldı">Yerinde Bakım Yapıldı</SelectItem>
+            <SelectItem value="Teknisyen Yönlendir">Teknisyen Yönlendir</SelectItem>
+            <SelectItem value="Atölyeye Alındı">Atölyeye Alındı</SelectItem>
+            <SelectItem value="Cihaz Teslim Edildi">Cihaz Teslim Edildi</SelectItem>
             <SelectItem value="Parçası Atölyeye Alındı">Parçası Atölyeye Alındı</SelectItem>
+            <SelectItem value="Yerinde Bakım Yapıldı">Yerinde Bakım Yapıldı</SelectItem>
+            <SelectItem value="Atölyeye Aldır (Nakliye Gönder)">Atölyeye Aldır (Nakliye Gönder)</SelectItem>
+            <SelectItem value="Fiyatta Anlaşılamadı">Fiyatta Anlaşılamadı</SelectItem>
+            <SelectItem value="Ürün Garantili Çıktı">Ürün Garantili Çıktı</SelectItem>
+            <SelectItem value="Müşteriye Ulaşılamadı">Müşteriye Ulaşılamadı</SelectItem>
+            <SelectItem value="Müşteri İptal Etti">Müşteri İptal Etti</SelectItem>
+            <SelectItem value="Beklemede">Beklemede</SelectItem>
             <SelectItem value="Tamamlandı">Tamamlandı</SelectItem>
-            <SelectItem value="İptal Edildi">İptal Edildi</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {/* AI Assistant */}
-      <div className="border border-border bg-card rounded-xl overflow-hidden">
-        <div className="bg-blue-500/10 px-4 py-3 border-b border-border flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            <span className="text-sm font-bold tracking-wider text-foreground uppercase">AI ONARIM ASİSTANI</span>
-          </div>
-          <Button 
-            disabled={isAiLoading} 
-            onClick={handleAiDiagnosis} 
-            variant="outline" 
-            size="sm" 
-            className="h-7 text-xs bg-blue-500/5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
-          >
-            {isAiLoading ? 'Analiz Ediliyor...' : 'Akıllı Tanı Öner'}
-          </Button>
-        </div>
-        <div className="p-4">
-          {!aiSuggestion && !isAiLoading && (
-            <p className="text-xs text-muted-foreground italic text-center py-2">
-              Arıza açıklamasına göre olası çözüm adımlarını yapay zeka ile analiz etmek için yukarıdaki butona tıklayın.
-            </p>
-          )}
-          {isAiLoading && (
-            <div className="flex flex-col items-center justify-center py-4 space-y-2">
-              <div className="w-5 h-5 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-              <p className="text-[10px] text-blue-400 font-medium animate-pulse">Gemini ile analiz yapılıyor...</p>
-            </div>
-          )}
-          {aiSuggestion && (
-            <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 space-y-2">
-              <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">AI Önerileri</div>
-              <div className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">
-                {aiSuggestion}
-              </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-6 w-full text-[10px] text-blue-400 hover:bg-blue-500/10 border border-blue-500/10"
-                onClick={() => {
-                  setNotes(prev => ({ ...prev, faultDiagnosis: (prev.faultDiagnosis ? prev.faultDiagnosis + '\n\n' : '') + 'AI Önerisi:\n' + aiSuggestion }));
-                  toast.success('Öneri arıza tespiti alanına eklendi');
-                }}
-              >
-                Notlara Ekle
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Technician Notes */}
       <div className="border border-border bg-card rounded-xl overflow-hidden">
@@ -757,16 +700,7 @@ export function ServiceDetail() {
         </div>
         <div className="p-4 space-y-4">
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground uppercase">Arıza Tespiti</Label>
-              <button 
-                onClick={() => toggleRecording('faultDiagnosis')} 
-                className={`p-1.5 rounded-full outline-none transition-colors border ${recordingField === 'faultDiagnosis' ? 'bg-red-500 text-white border-red-500 animate-pulse shadow-md shadow-red-500/20' : 'bg-card border-border hover:bg-muted text-muted-foreground hover:text-foreground'}`}
-                title="Sesle yazdır"
-              >
-                {recordingField === 'faultDiagnosis' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+            <Label className="text-xs text-muted-foreground uppercase">Arıza Tespiti</Label>
             <Textarea 
               value={notes.faultDiagnosis} 
               onChange={e => setNotes({...notes, faultDiagnosis: e.target.value})} 
@@ -776,16 +710,7 @@ export function ServiceDetail() {
             />
           </div>
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground uppercase">Yapılan İşlemler</Label>
-              <button 
-                onClick={() => toggleRecording('actionsTaken')} 
-                className={`p-1.5 rounded-full outline-none transition-colors border ${recordingField === 'actionsTaken' ? 'bg-red-500 text-white border-red-500 animate-pulse shadow-md shadow-red-500/20' : 'bg-card border-border hover:bg-muted text-muted-foreground hover:text-foreground'}`}
-                title="Sesle yazdır"
-              >
-                {recordingField === 'actionsTaken' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+            <Label className="text-xs text-muted-foreground uppercase">Yapılan İşlemler</Label>
             <Textarea 
               value={notes.actionsTaken} 
               onChange={e => setNotes({...notes, actionsTaken: e.target.value})} 
@@ -795,16 +720,7 @@ export function ServiceDetail() {
             />
           </div>
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground uppercase">Kullanılan Parça</Label>
-              <button 
-                onClick={() => toggleRecording('partsUsed')} 
-                className={`p-1.5 rounded-full outline-none transition-colors border ${recordingField === 'partsUsed' ? 'bg-red-500 text-white border-red-500 animate-pulse shadow-md shadow-red-500/20' : 'bg-card border-border hover:bg-muted text-muted-foreground hover:text-foreground'}`}
-                title="Sesle yazdır"
-              >
-                {recordingField === 'partsUsed' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+            <Label className="text-xs text-muted-foreground uppercase">Kullanılan Parça</Label>
             <Textarea 
               value={notes.partsUsed} 
               onChange={e => setNotes({...notes, partsUsed: e.target.value})} 
@@ -849,23 +765,25 @@ export function ServiceDetail() {
             + İşlem Ekle
           </Button>
         </div>
-        <div className="p-0">
-          <div className="grid grid-cols-12 text-[10px] text-muted-foreground uppercase px-4 py-2 border-b border-border/50 bg-background/50 font-bold">
-            <div className="col-span-3">Tarih / Saat</div>
-            <div className="col-span-3">İşlem Adı</div>
-            <div className="col-span-6">Açıklama</div>
-          </div>
-          {logs.map(log => (
-            <div key={log.id} className="grid grid-cols-12 text-xs border-b border-border/50 px-4 py-3 last:border-0 hover:bg-white/[0.02]">
-              <div className="col-span-3 text-muted-foreground">{format(new Date(log.createdAt), 'dd.MM.yyyy HH:mm')}</div>
-              <div className="col-span-3 text-primary font-medium">{log.actionName}</div>
-              <div className="col-span-6 text-foreground break-words flex justify-between items-start gap-1">
-                <span>{log.description}</span>
-                <X onClick={(e) => { e.stopPropagation(); deleteDoc(doc(db, `serviceRecords/${id}/logs`, log.id)); }} className="w-3 h-3 text-red-500 opacity-50 hover:opacity-100 cursor-pointer flex-shrink-0 mt-0.5"/>
-              </div>
+        <div className="p-0 overflow-x-auto">
+          <div className="min-w-[400px]">
+            <div className="grid grid-cols-12 text-[10px] text-muted-foreground uppercase px-4 py-2 border-b border-border/50 bg-background/50 font-bold">
+              <div className="col-span-3">Tarih / Saat</div>
+              <div className="col-span-3">İşlem Adı</div>
+              <div className="col-span-6">Açıklama</div>
             </div>
-          ))}
-          {logs.length === 0 && <div className="text-center text-xs text-muted-foreground py-4">Kayıt yok.</div>}
+            {logs.map(log => (
+              <div key={log.id} className="grid grid-cols-12 text-xs border-b border-border/50 px-4 py-3 last:border-0 hover:bg-white/[0.02]">
+                <div className="col-span-3 text-muted-foreground">{format(new Date(log.createdAt), 'dd.MM.yyyy HH:mm')}</div>
+                <div className="col-span-3 text-primary font-medium">{log.actionName}</div>
+                <div className="col-span-6 text-foreground break-words flex justify-between items-start gap-1">
+                  <span className="whitespace-pre-wrap">{log.description}</span>
+                  <X onClick={(e) => { e.stopPropagation(); deleteDoc(doc(db, `serviceRecords/${id}/logs`, log.id)); }} className="w-3 h-3 text-red-500 opacity-50 hover:opacity-100 cursor-pointer flex-shrink-0 mt-0.5"/>
+                </div>
+              </div>
+            ))}
+            {logs.length === 0 && <div className="text-center text-xs text-muted-foreground py-4">Kayıt yok.</div>}
+          </div>
         </div>
       </div>
 
@@ -880,32 +798,71 @@ export function ServiceDetail() {
             + Ekle
           </Button>
         </div>
-        <div className="p-0">
-          <div className="grid grid-cols-12 text-[10px] text-muted-foreground uppercase px-4 py-2 border-b border-border/50 bg-background/50 font-bold">
-            <div className="col-span-2">Tarih</div>
-            <div className="col-span-3">Yapan</div>
-            <div className="col-span-2 text-center">Şekil</div>
-            <div className="col-span-2 text-center">Durum</div>
-            <div className="col-span-3 text-right">Tutar</div>
-          </div>
-          {transactions.map(tx => (
-            <div key={tx.id} className="grid grid-cols-12 text-xs border-b border-border/50 px-4 py-3 last:border-0 items-center hover:bg-white/[0.02]">
-              <div className="col-span-2 text-muted-foreground">{format(new Date(tx.createdAt), 'dd.MM.yyyy')}</div>
-              <div className="col-span-3 text-foreground truncate">{tx.actor}</div>
-              <div className="col-span-2 text-center">{tx.method}</div>
-              <div className="col-span-2 text-center text-green-400">{tx.status}</div>
-              <div className="col-span-3 text-right font-bold text-primary flex justify-end items-center gap-1">
-                {tx.amount} ₺ <X onClick={(e) => { e.stopPropagation(); deleteDoc(doc(db, `serviceRecords/${id}/transactions`, tx.id)); }} className="w-3 h-3 text-red-500 ml-1 opacity-50 hover:opacity-100 cursor-pointer"/>
-              </div>
+        <div className="p-0 overflow-x-auto">
+          <div className="min-w-[450px]">
+            <div className="grid grid-cols-12 text-[10px] text-muted-foreground uppercase px-4 py-2 border-b border-border/50 bg-background/50 font-bold">
+              <div className="col-span-2">Tarih</div>
+              <div className="col-span-3">Yapan</div>
+              <div className="col-span-2 text-center">Şekil</div>
+              <div className="col-span-2 text-center">Durum</div>
+              <div className="col-span-3 text-right">Tutar</div>
             </div>
-          ))}
-          <div className="px-4 py-3 flex justify-between bg-background/30 font-bold border-t border-border">
-            <span>Toplam Tahsilat</span>
-            <span className="text-primary text-lg">{totalTx} ₺</span>
+            {transactions.map(tx => (
+              <div key={tx.id} className="grid grid-cols-12 text-xs border-b border-border/50 px-4 py-3 last:border-0 items-center hover:bg-white/[0.02]">
+                <div className="col-span-2 text-muted-foreground">{format(new Date(tx.createdAt), 'dd.MM.yyyy')}</div>
+                <div className="col-span-3 text-foreground truncate">{tx.actor}</div>
+                <div className="col-span-2 text-center">{tx.method}</div>
+                <div className="col-span-2 text-center text-green-400">{tx.status}</div>
+                <div className="col-span-3 text-right font-bold text-primary flex justify-end items-center gap-1">
+                  {tx.amount} ₺ <X onClick={(e) => { e.stopPropagation(); deleteDoc(doc(db, `serviceRecords/${id}/transactions`, tx.id)); }} className="w-3 h-3 text-red-500 ml-1 opacity-50 hover:opacity-100 cursor-pointer"/>
+                </div>
+              </div>
+            ))}
+            <div className="px-4 py-3 flex justify-between bg-background/30 font-bold border-t border-border mt-auto">
+              <span>Toplam Tahsilat</span>
+              <span className="text-primary text-lg">{totalTx} ₺</span>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* PDF History */}
+      <div className="border border-border bg-card rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Printer className="w-4 h-4 text-blue-400" />
+              <span className="text-sm font-bold tracking-wider text-foreground">PDF FİŞ GEÇMİŞİ</span>
+            </div>
+        </div>
+        <div className="p-0 overflow-x-auto">
+          <div className="min-w-[300px]">
+            <div className="grid grid-cols-12 text-[10px] text-muted-foreground uppercase px-4 py-2 border-b border-border/50 bg-background/50 font-bold">
+              <div className="col-span-4">Tarih</div>
+              <div className="col-span-5">Oluşturan</div>
+              <div className="col-span-3 text-right">Eylem</div>
+            </div>
+            {pdfLogs.map(log => (
+              <div key={log.id} className="grid grid-cols-12 text-xs border-b border-border/50 px-4 py-3 last:border-0 items-center hover:bg-white/[0.02]">
+                <div className="col-span-4 text-muted-foreground">{format(new Date(log.createdAt), 'dd.MM.yyyy HH:mm')}</div>
+                <div className="col-span-4 text-foreground truncate">{log.operator}</div>
+                <div className="col-span-4 text-right flex gap-1 justify-end">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="PDF İndir" onClick={handleDownloadPdf}>
+                    <Printer className="w-4 h-4 text-primary" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Düzenle" onClick={() => handleEditPdfLog(log)}>
+                    <Edit className="w-4 h-4 text-blue-500" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="İmza Linki Gönder (Devam Et)" onClick={() => handleSendSignLink(true)}>
+                    <Share2 className="w-4 h-4 text-yellow-500" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {pdfLogs.length === 0 && <div className="text-center text-xs text-muted-foreground py-4">Kayıt yok.</div>}
+          </div>
+        </div>
+      </div>
+      
       {/* Photos */}
       <div className="border border-border bg-card rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
@@ -941,7 +898,7 @@ export function ServiceDetail() {
           <span className="text-sm font-bold tracking-wider text-foreground">İMZA</span>
         </div>
         <div className="p-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             
             <div className="space-y-2">
               <Label className="text-[10px] text-muted-foreground uppercase text-center block tracking-wider">MÜŞTERİ İMZASI</Label>
@@ -1073,7 +1030,7 @@ export function ServiceDetail() {
                 <Label>Adres</Label>
                 <Textarea value={editDetails.customerAddress} onChange={e => setEditDetails({...editDetails, customerAddress: e.target.value})} className="bg-background" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="space-y-2">
                   <Label>İlçe</Label>
                   <Input value={editDetails.customerDistrict} onChange={e => setEditDetails({...editDetails, customerDistrict: e.target.value})} className="bg-background" />
@@ -1089,7 +1046,7 @@ export function ServiceDetail() {
               <h3 className="font-bold text-sm text-red-500 flex items-center gap-2">
                 <Settings className="w-4 h-4" /> Cihaz & Servis
               </h3>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="space-y-2">
                   <Label>Marka</Label>
                   <Input value={editDetails.deviceBrand} onChange={e => setEditDetails({...editDetails, deviceBrand: e.target.value})} className="bg-background" />
@@ -1121,7 +1078,7 @@ export function ServiceDetail() {
               <h3 className="font-bold text-sm flex items-center gap-2">
                 <CalendarDays className="w-4 h-4" /> Randevu Zamanı
               </h3>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="space-y-2">
                   <Label>Tarih</Label>
                   <Input type="date" value={editDetails.availableDate} onChange={e => setEditDetails({...editDetails, availableDate: e.target.value})} className="bg-background" />
@@ -1144,27 +1101,90 @@ export function ServiceDetail() {
       </Dialog>
 
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-        <DialogContent className="bg-card border-border sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0">
-          <DialogHeader className="p-4 border-b">
+        <DialogContent className="bg-card border-border sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0 flex flex-col">
+          <DialogHeader className="p-4 border-b shrink-0 flex-row justify-between items-center">
             <DialogTitle className="flex items-center gap-2">
               <Eye className="w-5 h-5 text-blue-400" /> Servis Formu Önizleme
             </DialogTitle>
+            <Button variant="ghost" size="sm" onClick={() => setIsPdfSettingsOpen(!isPdfSettingsOpen)} className="h-8 gap-2 text-xs">
+              <Settings className="w-4 h-4" /> Şablon Ayarları
+            </Button>
           </DialogHeader>
-          <div className="flex justify-center bg-muted/30 p-2 sm:p-6">
-            <div className="bg-white shadow-2xl rounded-sm origin-top scale-[0.45] sm:scale-100 h-fit">
-              {record && (
-                <PdfTemplate 
-                  record={record} 
-                  logs={logs} 
-                  transactions={transactions} 
-                />
-              )}
+          
+          <div className="flex-1 overflow-y-auto w-full relative">
+            {isPdfSettingsOpen && (
+              <div className="bg-muted p-4 border-b space-y-4 shadow-sm relative z-10 w-full animate-in slide-in-from-top-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-sm">PDF Header & Footer Ayarları</h3>
+                  <Button variant="ghost" size="icon" onClick={() => setIsPdfSettingsOpen(false)} className="h-6 w-6 rounded-full"><X className="w-3 h-3" /></Button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">Üst Başlık (Örn: BÖLGE MERKEZ SERVİSİ)</Label>
+                    <Input className="h-8 text-xs" value={pdfSettings.topTitle} onChange={e => setPdfSettings({...pdfSettings, topTitle: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">Üst Alt Başlık</Label>
+                    <Input className="h-8 text-xs" value={pdfSettings.topSubtitle} onChange={e => setPdfSettings({...pdfSettings, topSubtitle: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">Sağ Üst Başlık (Örn: MÜŞTERİ HİZMETLERİ)</Label>
+                    <Input className="h-8 text-xs" value={pdfSettings.topPhoneTitle} onChange={e => setPdfSettings({...pdfSettings, topPhoneTitle: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">Sağ Üst Telefon</Label>
+                    <Input className="h-8 text-xs" value={pdfSettings.topPhone} onChange={e => setPdfSettings({...pdfSettings, topPhone: e.target.value})} />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">Alt Sol Şirket Bilgisi</Label>
+                    <Input className="h-8 text-xs" value={pdfSettings.bottomCompany} onChange={e => setPdfSettings({...pdfSettings, bottomCompany: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">Alt Sol Marka İsmi</Label>
+                    <Textarea className="h-12 min-h-[48px] text-xs resize-none" value={pdfSettings.bottomBrand} onChange={e => setPdfSettings({...pdfSettings, bottomBrand: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">Alt Sol Telefon Bilgisi</Label>
+                    <Input className="h-8 text-xs" value={pdfSettings.bottomPhone} onChange={e => setPdfSettings({...pdfSettings, bottomPhone: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase">PDF Teması</Label>
+                    <Select value={pdfSettings.theme} onValueChange={(v: PdfTheme) => setPdfSettings({...pdfSettings, theme: v as PdfTheme})}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="modern">Modern (Mavi)</SelectItem>
+                        <SelectItem value="classic">Klasik (Gri)</SelectItem>
+                        <SelectItem value="minimal">Minimal (Siyah/Beyaz)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end mt-4">
+                  <Button size="sm" onClick={() => { localStorage.setItem('pdfSettings', JSON.stringify(pdfSettings)); setIsPdfSettingsOpen(false); toast.success('Şablon ayarları kaydedildi'); }}>Ayarları Kaydet</Button>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-center bg-muted/30 p-2 sm:p-6 w-full max-w-[100vw] overflow-x-auto overflow-y-auto">
+              <div className="bg-white shadow-2xl rounded-sm origin-top scale-[0.45] sm:scale-100 min-w-[794px]">
+                {record && (
+                  <PdfTemplate 
+                    record={record} 
+                    logs={logs} 
+                    transactions={transactions} 
+                    settings={pdfSettings}
+                  />
+                )}
+              </div>
             </div>
           </div>
-          <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t p-4 flex gap-3">
+          
+          <div className="shrink-0 bg-background/95 backdrop-blur border-t p-4 flex gap-3">
              <Button variant="outline" className="flex-1" onClick={() => setIsPreviewOpen(false)}>Kapat</Button>
-             <Button className="flex-1 bg-primary text-black font-bold" onClick={() => { setIsPreviewOpen(false); handleDownloadPdf(); }}>
-               <Printer className="w-4 h-4 mr-2" /> PDF Olarak İndir
+             <Button className="flex-1 bg-primary text-black font-bold" onClick={() => { setIsPreviewOpen(false); handleSharePdf(); }}>
+               <Printer className="w-4 h-4 mr-2" /> PDF Oluştur ve Gönder
              </Button>
           </div>
         </DialogContent>
@@ -1199,7 +1219,7 @@ export function ServiceDetail() {
         }} 
         aria-hidden="true"
       >
-         {record && <PdfTemplate ref={pdfRef} record={record} logs={logs} transactions={transactions} />}
+         {record && <PdfTemplate ref={pdfRef} record={record} logs={logs} transactions={transactions} settings={pdfSettings} />}
       </div>
 
       {/* Bottom Sticky Action Bar */}
@@ -1219,8 +1239,11 @@ export function ServiceDetail() {
         <Button onClick={handleSharePdf} disabled={isGeneratingPdf} variant="outline" className="flex-1 min-w-[70px] h-12 bg-card border-green-500/20 text-green-400 hover:bg-green-500/10 flex flex-col items-center justify-center gap-1 rounded-xl">
           <Smartphone className="w-4 h-4" /> <span className="text-[10px] font-bold text-center leading-none">WA PDF</span>
         </Button>
-        <Button onClick={handleSendSignLink} variant="outline" className="flex-1 min-w-[70px] h-12 bg-card border-green-500/20 text-green-400 hover:bg-green-500/10 flex flex-col items-center justify-center gap-1 rounded-xl">
-          <Share2 className="w-4 h-4" /> <span className="text-[10px] font-bold text-center leading-none">WA İmza<br/>Link</span>
+        <Button onClick={() => handleSendSignLink(false)} variant="outline" className="flex-1 min-w-[70px] h-12 bg-card border-green-500/20 text-green-400 hover:bg-green-500/10 flex flex-col items-center justify-center gap-1 rounded-xl">
+          <Share2 className="w-4 h-4" /> <span className="text-[10px] font-bold text-center leading-none">İmza<br/>Link</span>
+        </Button>
+        <Button onClick={() => handleSendSignLink(true)} variant="outline" className="flex-1 min-w-[70px] h-12 bg-card border-yellow-500/20 text-yellow-400 hover:bg-yellow-500/10 flex flex-col items-center justify-center gap-1 rounded-xl">
+          <Sparkles className="w-4 h-4" /> <span className="text-[10px] font-bold text-center leading-none">Zorunlu<br/>Link</span>
         </Button>
         <Button onClick={() => setIsLogOpen(true)} variant="outline" className="flex-1 min-w-[70px] h-12 bg-card border-purple-500/20 text-purple-400 hover:bg-purple-500/10 flex flex-col items-center justify-center gap-1 rounded-xl">
           <Settings className="w-4 h-4" /> <span className="text-[10px] font-bold">İşlem+</span>

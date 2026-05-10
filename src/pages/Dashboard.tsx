@@ -19,8 +19,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 
+import { MapPin, Calculator, BookOpen, Settings, PackageOpen } from 'lucide-react';
+
 export function Dashboard() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [records, setRecords] = useState<ServiceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,6 +88,34 @@ export function Dashboard() {
         </div>
         <Wrench className="absolute -right-4 -bottom-4 w-32 h-32 text-primary/10 -rotate-12" />
       </div>
+
+    {/* Quick Access Menu Grid */}
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <Button onClick={() => navigate('/map')} variant="outline" className="h-auto py-4 flex flex-col gap-2 bg-card hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-all rounded-2xl">
+        <MapPin className="w-6 h-6 text-blue-500" />
+        <span className="text-[10px] font-bold uppercase tracking-wider">Harita & Rota</span>
+      </Button>
+      <Button onClick={() => navigate('/calculator')} variant="outline" className="h-auto py-4 flex flex-col gap-2 bg-card hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-all rounded-2xl">
+        <Calculator className="w-6 h-6 text-purple-500" />
+        <span className="text-[10px] font-bold uppercase tracking-wider">% Hesaplama</span>
+      </Button>
+      {profile?.role === 'ADMIN' && (
+        <Button onClick={() => navigate('/accounting')} variant="outline" className="h-auto py-4 flex flex-col gap-2 bg-card hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-all rounded-2xl">
+          <BookOpen className="w-6 h-6 text-green-500" />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Muhasebe</span>
+        </Button>
+      )}
+      {(profile?.role === 'ADMIN' || profile?.role === 'TEKNISYEN') && (
+        <Button onClick={() => navigate('/stock')} variant="outline" className="h-auto py-4 flex flex-col gap-2 bg-card hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-all rounded-2xl">
+          <PackageOpen className="w-6 h-6 text-yellow-500" />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Stok Yönetimi</span>
+        </Button>
+      )}
+      <Button onClick={() => navigate('/users')} variant="outline" className="h-auto py-4 flex flex-col gap-2 bg-card hover:bg-primary/5 hover:text-primary hover:border-primary/50 transition-all rounded-2xl">
+        <Settings className="w-6 h-6 text-orange-500" />
+        <span className="text-[10px] font-bold uppercase tracking-wider">{profile?.role === 'ADMIN' ? 'Ayarlar' : 'Profilim'}</span>
+      </Button>
+    </div>
 
       {/* Main Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

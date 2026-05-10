@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { ServiceRecord } from '../types';
@@ -9,10 +9,17 @@ import SignatureCanvas from 'react-signature-canvas';
 
 export function PublicSign() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const forced = searchParams.get('forced') === 'true';
   const [record, setRecord] = useState<ServiceRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const sigPad = useRef<any>(null);
   const [isSigned, setIsSigned] = useState(false);
+  
+  const isIntakeNeeded = record && (!record.intakeSignature || forced);
+  const isDeliveryNeeded = record && (record.intakeSignature || record.customerSignature) && (!record.deliverySignature || forced) && record.status === 'Cihaz Teslim Edildi';
+  
+  const [currentStep, setCurrentStep] = useState<'intake' | 'delivery' | 'done'>('done');
 
   useEffect(() => {
     if (!id) return;
@@ -34,7 +41,38 @@ export function PublicSign() {
     fetchDoc();
   }, [id]);
 
+  useEffect(() => {
+    if (record) {
+      if (isIntakeNeeded) setCurrentStep('intake');
+      else if (isDeliveryNeeded) setCurrentStep('delivery');
+      else setCurrentStep('done');
+    }
+  }, [record, isIntakeNeeded, isDeliveryNeeded]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (sigPad.current) {
+        const canvas = sigPad.current.getCanvas();
+        const parent = canvas.parentElement;
+        if (parent) {
+          const ratio = Math.max(window.devicePixelRatio || 1, 1);
+          canvas.width = parent.offsetWidth * ratio;
+          canvas.height = parent.offsetHeight * ratio;
+          canvas.getContext('2d').scale(ratio, ratio);
+          sigPad.current.clear(); 
+        }
+      }
+    };
+    const timeoutId = setTimeout(handleResize, 100);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
   const handleSaveSignature = async () => {
+    console.log("HandleSaveSignature called", { id, sigPadEmpty: sigPad.current?.isEmpty(), currentStep });
     if (sigPad.current?.isEmpty() || !id) {
       toast.error('Lütfen imza alanını doldurun');
       return;
@@ -42,33 +80,38 @@ export function PublicSign() {
     const signature = sigPad.current.getTrimmedCanvas().toDataURL('image/png');
     
     try {
-      await updateDoc(doc(db, 'serviceRecords', id), {
-        customerSignature: signature,
-        updatedAt: new Date().toISOString()
-      });
-
+      console.log("Saving signature...");
+      const updateData: any = { updatedAt: new Date().toISOString() };
+      if (currentStep === 'intake') updateData.intakeSignature = signature;
+      else if (currentStep === 'delivery') updateData.deliverySignature = signature;
+      
+      await updateDoc(doc(db, 'serviceRecords', id), updateData);
+      
+      // Update local record to trigger state updates!                
+      setRecord({ ...record, ...updateData });
+      
       try {
         await addDoc(collection(db, `serviceRecords/${id}/logs`), {
           actionName: 'Dijital İmza Onayı',
-          description: 'Müşteri servis formunu dijital olarak imzaladı.',
+          description: currentStep === 'intake' ? 'Müşteri servis kaydını imzaladı.' : 'Müşteri servis teslimatını imzaladı.',
           createdAt: new Date().toISOString()
         });
       } catch (logErr) {
-        // Ignore log errors so it doesn't interrupt the success flow for user
         console.error('Log error', logErr);
       }
 
       setIsSigned(true);
       toast.success('İmzanız başarıyla kaydedildi.');
     } catch(e) {
-      handleFirestoreError(e, OperationType.UPDATE, `serviceRecords/${id}`);
+      console.error('Signature save error', e);
+      toast.error('İmza kaydedilirken bir hata oluştu');
     }
   };
 
   if (loading) return <div className="p-4 text-center mt-10">Yükleniyor...</div>;
   if (!record) return <div className="p-4 text-center mt-10">Kayıt bulunamadı.</div>;
 
-  if (record.customerSignature || isSigned) {
+  if (currentStep === 'done' || isSigned) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-4">
@@ -87,7 +130,9 @@ export function PublicSign() {
           <div className="text-primary font-bold text-2xl tracking-tighter">BÖLGE MERKEZ SERVİSİ</div>
           <div className="text-muted-foreground text-[10px] font-medium uppercase tracking-[0.2em]">Teknik Hizmetler ve Çözüm Merkezi</div>
         </div>
-        <h1 className="text-xl font-bold text-foreground">Servis Onay Formu</h1>
+        <h1 className="text-xl font-bold text-foreground">
+            Servis Kayıt Onay Formu
+        </h1>
         <p className="text-sm text-primary">#{record.serviceId}</p>
       </div>
 
@@ -107,9 +152,11 @@ export function PublicSign() {
           </div>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1 font-bold text-red-500">Arıza ve Yapılan İşlemler</p>
+          <p className="text-xs text-muted-foreground uppercase mb-1 font-bold text-red-500">
+            {currentStep === 'intake' ? 'Arıza Açıklaması' : 'Arıza ve Yapılan İşlemler'}
+          </p>
           <div className="bg-muted/30 p-2 rounded text-sm whitespace-pre-wrap leading-relaxed border-l-2 border-primary">
-            {record.actionsTaken || record.faultDescription || '-'}
+            {currentStep === 'intake' ? record.faultDescription : (record.actionsTaken || record.faultDescription)}
           </div>
         </div>
         <div className="pt-2 border-t border-border flex justify-between items-center">
@@ -130,12 +177,30 @@ export function PublicSign() {
           <p><span className="font-bold text-foreground">7.</span> Fatura, hizmet verilen kişi/kurum adına düzenlenir. Bu form fatura yerine geçmez.</p>
           <p><span className="font-bold text-foreground">8.</span> Garanti ve servis taleplerinde form ibrazı zorunludur.</p>
           <p><span className="font-bold text-foreground">9.</span> Müşteri; işlem, ücret ve garanti şartları hakkında bilgilendirildiğini kabul eder.</p>
+          
+          <div className="my-4 border-t border-border/50 pt-4">
+            <h4 className="text-[11px] font-bold text-foreground uppercase tracking-wider mb-3 text-center">Servis İstasyonlarının Sorumlulukları</h4>
+            <div className="space-y-2">
+              <p><span className="font-bold text-foreground">(1)</span> Tüketicinin bulunduğu yerde yetkili servis istasyonunun olmaması halinde satış sonrası hizmetlerin verilmesinden, tüketiciye en yakın yerdeki yetkili servis sorumludur.</p>
+              <p><span className="font-bold text-foreground">(2)</span> Tüketiciye en yakın yetkili servis istasyonunda hizmet verilmesinin mümkün olmaması durumunda malın nakliyesi ile ilgili tüketiciden herhangi bir ulaşım gideri talep edilemez.</p>
+              <p><span className="font-bold text-foreground">(3)</span> Servis istasyonlarının, ilgili yönetmelikte belirtilen belgeleri düzenlemesi ve bir nüshasını tüketiciye vermesi zorunludur.</p>
+              <p><span className="font-bold text-foreground">(4)</span> Bakım ve onarım süresi azami tamir süresini geçemez. (Servis hizmetleri, üretici veya ithalatçı firmalardan bağımsız olarak faaliyet gösteren özel teknik servis kapsamında sunulmaktadır.)</p>
+              <p><span className="font-bold text-foreground">(5)</span> Malın tamirinin tamamlandığı tarih tüketiciye telefon, kısa mesaj, e-posta veya benzeri yollarla bildirilir.</p>
+              <p><span className="font-bold text-foreground">(6)</span> Garanti dışı hizmetlerde, aynı arızanın 1 yıl içinde tekrarı halinde ücret talep edilmez (kullanım hatası hariç).</p>
+              <p><span className="font-bold text-foreground">(7)</span> Değiştirilen parçalar için en az 12 ay garanti verilir.</p>
+              <p><span className="font-bold text-foreground">(8)</span> Cihaz onarım süresi maksimum 21 iş günüdür.</p>
+              <p><span className="font-bold text-foreground">(9)</span> 30 gün içerisinde teslim alınmayan cihazlardan servis sorumlu değildir.</p>
+              <p><span className="font-bold text-foreground">(10)</span> İşlem iptallerinde ücret iadesi yapılmaz.</p>
+              <p><span className="font-bold text-foreground">(11)</span> İşlem iptali ile geri talep edilen cihazlarda 3000 TL hizmet bedeli uygulanır.</p>
+              <p><span className="font-bold text-foreground">(12)</span> Muadil parça kullanımı veya revizyon yapılabileceği bilgisi tüketiciye verilmiş olup hizmet kapsamında değerlendirilmektedir.</p>
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="bg-card border border-border rounded-xl p-6 flex-1 flex flex-col items-center justify-center shadow-lg relative overflow-hidden">
         <div className="absolute top-0 left-0 w-1 h-full bg-primary" />
-         <p className="text-sm mb-4 font-medium">Lütfen aşağıya imzanızı atın:</p>
+         <p className="text-sm mb-4 font-medium">Lütfen aşağıya {currentStep === 'intake' ? 'servis kaydı' : 'servis teslimat'} imzanızı atın:</p>
          <div className="w-full h-48 border-2 border-dashed border-primary/50 bg-white/5 rounded-xl overflow-hidden mb-4 relative touch-none">
             <SignatureCanvas 
               ref={sigPad} 
@@ -149,7 +214,7 @@ export function PublicSign() {
          </div>
          
          <p className="text-[10px] text-muted-foreground mt-6 text-center leading-tight">
-           Onayla ve İmzala butonuna basarak, yapılan işlemleri, ücret bilgisini ve garanti şartlarını kontrol ettiğimi, cihazımı eksiksiz teslim aldığımı beyan ve kabul ederim.
+           Onayla ve İmzala butonuna basarak, {currentStep === 'intake' ? 'belirtilen arıza kaydını' : 'yapılan işlemleri, ücret bilgisini ve garanti şartlarını kontrol ettiğimi, cihazımı eksiksiz teslim aldığımı'} beyan ve kabul ederim.
          </p>
       </div>
     </div>

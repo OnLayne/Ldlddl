@@ -9,15 +9,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { User, MonitorSmartphone, StickyNote, Mic, MicOff } from 'lucide-react';
+import { User, MonitorSmartphone, StickyNote, Scan, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { GoogleGenAI, Type } from "@google/genai";
 
 export function NewService() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [recordingField, setRecordingField] = useState<'faultDescription' | 'customerAddress' | 'operatorNote' | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Basic state for the form instead of complex react-hook-form since we just need simple inputs
   const [formData, setFormData] = useState({
@@ -42,65 +43,6 @@ export function NewService() {
     operatorNote: ''
   });
 
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition && !recognitionRef.current) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'tr-TR';
-      
-      recognition.onend = () => {
-        setRecordingField(null);
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        if (event.error !== 'no-speech' && event.error !== 'aborted') {
-          toast.error("Ses tanıma hatası: " + event.error);
-        }
-        setRecordingField(null);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, []);
-
-  // Update event listener when recordingField changes
-  useEffect(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript + ' ';
-          }
-        }
-        if (finalTranscript && recordingField) {
-          setFormData((prev: any) => ({ ...prev, [recordingField]: (prev[recordingField] || '') + finalTranscript }));
-        }
-      };
-    }
-  }, [recordingField]);
-
-  const toggleRecording = (field: 'faultDescription' | 'customerAddress' | 'operatorNote') => {
-    if (!recognitionRef.current) {
-      toast.error('Tarayıcınız ses tanımayı desteklemiyor (Chrome/Safari tavsiye edilir).');
-      return;
-    }
-
-    if (recordingField === field) {
-      recognitionRef.current.stop();
-      setRecordingField(null);
-      toast.info('Ses kaydı durduruldu');
-    } else {
-      if (recordingField) recognitionRef.current.stop();
-      setRecordingField(field);
-      recognitionRef.current.start();
-      toast.success('Ses kaydı başladı, konuşabilirsiniz...');
-    }
-  };
-
   const handleChange = (e: any) => {
     const { name, value } = e.target;
     let finalValue = value;
@@ -111,6 +53,76 @@ export function NewService() {
     }
     
     setFormData(prev => ({ ...prev, [name]: finalValue }));
+  };
+
+  const handleImageScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScanLoading(true);
+    const toastId = toast.loading('Görsel analiz ediliyor...');
+
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+      });
+      reader.readAsDataURL(file);
+      const base64Data = await base64Promise;
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: "Bu teknik servis formundan veya ekran görüntüsünden şu bilgileri ayıkla: customerName (Ad Soyad), customerPhone (Telefon), customerAddress (Adres), deviceBrand (Cihaz Markası), deviceType (Cihaz Türü), deviceModel (Cihaz Modeli), faultDescription (Arıza Açıklaması). Eğer bulamazsan boş bırak." },
+              { inlineData: { data: base64Data, mimeType: file.type } }
+            ]
+          }
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              customerName: { type: Type.STRING },
+              customerPhone: { type: Type.STRING },
+              customerAddress: { type: Type.STRING },
+              deviceBrand: { type: Type.STRING },
+              deviceType: { type: Type.STRING },
+              deviceModel: { type: Type.STRING },
+              faultDescription: { type: Type.STRING },
+            }
+          }
+        }
+      });
+
+      const result = JSON.parse(response.text || '{}');
+      
+      setFormData(prev => ({
+        ...prev,
+        customerName: result.customerName || prev.customerName,
+        customerPhone1: result.customerPhone || prev.customerPhone1,
+        customerAddress: result.customerAddress || prev.customerAddress,
+        deviceBrand: result.deviceBrand || prev.deviceBrand,
+        deviceType: result.deviceType || prev.deviceType,
+        deviceModel: result.deviceModel || prev.deviceModel,
+        faultDescription: result.faultDescription || prev.faultDescription,
+      }));
+
+      toast.success('Bilgiler görselden başarıyla alındı', { id: toastId });
+    } catch (error) {
+      console.error(error);
+      toast.error('Görsel taranamadı', { id: toastId });
+    } finally {
+      setScanLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleSelectChange = (name: string, value: string) => {
@@ -166,11 +178,36 @@ export function NewService() {
   );
 
   return (
-    <div className="space-y-6 pb-6">
+    <div className="space-y-6 pb-24">
       <div className="flex justify-between items-center text-xs px-1 text-muted-foreground">
         <div className="flex items-center gap-1">📅 {format(new Date(), 'dd.MM.yyyy')}</div>
         <div className="flex items-center gap-1">⏱️ {format(new Date(), 'HH:mm')}</div>
         <div className="flex items-center gap-1">👤 {user?.email?.split('@')[0] || 'admin'}</div>
+      </div>
+
+      {/* AI Scan Toolbar */}
+      <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 flex flex-col items-center text-center gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+        <div className="bg-primary/20 p-3 rounded-full text-primary">
+          {scanLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Scan className="w-6 h-6" />}
+        </div>
+        <div>
+          <h3 className="text-sm font-bold text-foreground">Görselden Bilgi Aktar</h3>
+          <p className="text-xs text-muted-foreground mt-1">Ekran görüntüsü veya fotoğraf yükleyerek formu otomatik doldurabilirsin.</p>
+        </div>
+        <input 
+          type="file" 
+          accept="image/*" 
+          className="hidden" 
+          ref={fileInputRef} 
+          onChange={handleImageScan}
+        />
+        <Button 
+          disabled={scanLoading} 
+          onClick={() => fileInputRef.current?.click()}
+          className="bg-primary text-black font-bold rounded-xl h-10 px-6 border-b-2 border-primary/50 shadow-md"
+        >
+          {scanLoading ? 'Taranıyor...' : '📸 GÖRSEL TARAT'}
+        </Button>
       </div>
 
       {/* Customer Info Form */}
@@ -178,7 +215,7 @@ export function NewService() {
         <SectionTitle icon={User} title="Müşteri Bilgileri" />
         <div className="bg-card border border-border rounded-xl rounded-tl-none p-4 space-y-4 shadow-lg">
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase tracking-wider">Müşteri Tipi</Label>
               <Select value={formData.customerType} onValueChange={v => handleSelectChange('customerType', v)}>
@@ -196,7 +233,7 @@ export function NewService() {
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase tracking-wider">Telefon 1 <span className="text-red-500">*</span></Label>
               <Input name="customerPhone1" value={formData.customerPhone1} onChange={handleChange} placeholder="05XX XXX XXXX" className="bg-background border-border h-11" />
@@ -208,7 +245,7 @@ export function NewService() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase tracking-wider">İl <span className="text-red-500">*</span></Label>
               <Input name="customerCity" value={formData.customerCity} onChange={handleChange} placeholder="İl giriniz..." className="bg-background border-border h-11" />
@@ -221,16 +258,7 @@ export function NewService() {
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wider">Adres <span className="text-red-500">*</span></Label>
-              <button 
-                onClick={() => toggleRecording('customerAddress')} 
-                className={`p-1.5 rounded-full outline-none transition-colors border ${recordingField === 'customerAddress' ? 'bg-red-500 text-white border-red-500 animate-pulse shadow-md shadow-red-500/20' : 'bg-card border-border hover:bg-muted text-muted-foreground hover:text-foreground'}`}
-                title="Sesle yazdır"
-              >
-                {recordingField === 'customerAddress' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Adres <span className="text-red-500">*</span></Label>
             <Textarea name="customerAddress" value={formData.customerAddress} onChange={handleChange} placeholder="Açık adres..." className="min-h-[80px] bg-background border-border resize-none" />
           </div>
 
@@ -241,7 +269,7 @@ export function NewService() {
 
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground uppercase tracking-wider">Müsait Olma Zamanı</Label>
-            <div className="grid grid-cols-[2fr_1fr_1fr] gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr] gap-2">
               <Input type="date" name="availableDate" value={formData.availableDate} onChange={handleChange} className="bg-background border-border h-11" />
               <Input type="time" name="availableTimeStart" value={formData.availableTimeStart} onChange={handleChange} className="bg-background border-border h-11" />
               <Input type="time" name="availableTimeEnd" value={formData.availableTimeEnd} onChange={handleChange} className="bg-background border-border h-11" />
@@ -256,7 +284,7 @@ export function NewService() {
         <SectionTitle icon={MonitorSmartphone} title="Cihaz Bilgileri" />
         <div className="bg-card border border-border rounded-xl rounded-tl-none p-4 space-y-4 shadow-lg">
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase tracking-wider">Marka <span className="text-red-500">*</span></Label>
               <Input name="deviceBrand" value={formData.deviceBrand} onChange={handleChange} placeholder="Marka giriniz..." className="bg-background border-border h-11" />
@@ -268,7 +296,7 @@ export function NewService() {
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase tracking-wider">Model</Label>
               <Input name="deviceModel" value={formData.deviceModel} onChange={handleChange} placeholder="Model adı/kodu" className="bg-background border-border h-11" />
@@ -281,20 +309,11 @@ export function NewService() {
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wider">Arıza Açıklaması <span className="text-red-500">*</span></Label>
-              <button 
-                onClick={() => toggleRecording('faultDescription')} 
-                className={`p-1.5 rounded-full outline-none transition-colors border ${recordingField === 'faultDescription' ? 'bg-red-500 text-white border-red-500 animate-pulse shadow-md shadow-red-500/20' : 'bg-card border-border hover:bg-muted text-muted-foreground hover:text-foreground'}`}
-                title="Sesle yazdır"
-              >
-                {recordingField === 'faultDescription' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Arıza Açıklaması <span className="text-red-500">*</span></Label>
             <Textarea name="faultDescription" value={formData.faultDescription} onChange={handleChange} placeholder="Müşterinin bildirdiği arıza..." className="min-h-[80px] bg-background border-border resize-none" />
           </div>
 
-          <div className="w-1/2 space-y-1.5">
+          <div className="w-full md:w-1/2 space-y-1.5">
             <Label className="text-xs text-muted-foreground uppercase tracking-wider">Garanti Süresi (Yıl)</Label>
             <Select value={formData.warrantyYears} onValueChange={v => handleSelectChange('warrantyYears', v)}>
               <SelectTrigger className="bg-background border-border h-11"><SelectValue /></SelectTrigger>
@@ -321,16 +340,7 @@ export function NewService() {
           </div>
           
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground uppercase tracking-wider">Operatör Notu</Label>
-              <button 
-                onClick={() => toggleRecording('operatorNote')} 
-                className={`p-1.5 rounded-full outline-none transition-colors border ${recordingField === 'operatorNote' ? 'bg-red-500 text-white border-red-500 animate-pulse shadow-md shadow-red-500/20' : 'bg-card border-border hover:bg-muted text-muted-foreground hover:text-foreground'}`}
-                title="Sesle yazdır"
-              >
-                {recordingField === 'operatorNote' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
-              </button>
-            </div>
+            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Operatör Notu</Label>
             <Input name="operatorNote" value={formData.operatorNote} onChange={handleChange} placeholder="Özel not, yönlendirme..." className="bg-background border-border h-11" />
           </div>
           

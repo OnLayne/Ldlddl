@@ -2,21 +2,55 @@ import React from 'react';
 import { ServiceRecord, ServiceLog, Transaction } from '../../types';
 import { format, addYears, differenceInDays, parseISO } from 'date-fns';
 
+export type PdfTheme = 'modern' | 'classic' | 'minimal';
+
+export interface PdfSettings {
+  topTitle: string;
+  topSubtitle: string;
+  topPhoneTitle: string;
+  topPhone: string;
+  bottomCompany: string;
+  bottomBrand: string;
+  bottomPhone: string;
+  bottomWebsite: string;
+  theme: PdfTheme;
+}
+
+export const defaultPdfSettings: PdfSettings = {
+  topTitle: "BÖLGE MERKEZ SERVİSİ",
+  topSubtitle: "Teknik Hizmetler ve Çözüm Merkezi",
+  topPhoneTitle: "7/24 MÜŞTERİ HİZMETLERİ",
+  topPhone: "0850 305 29 96",
+  bottomCompany: "İKLİM ISITMA & SOĞUTMA SİSTEMLERİ",
+  bottomBrand: "BÖLGE MERKEZ\nSERVİSİ",
+  bottomPhone: "📞 0850 305 29 96",
+  bottomWebsite: "🌐 bolgeservisarayin.com",
+  theme: 'modern'
+};
+
 interface PdfTemplateProps {
   record: ServiceRecord;
   logs: ServiceLog[];
   transactions: Transaction[];
+  settings?: PdfSettings;
 }
 
-export const PdfTemplate = React.forwardRef<HTMLDivElement, PdfTemplateProps>(({ record, logs, transactions }, ref) => {
+export const PdfTemplate = React.forwardRef<HTMLDivElement, PdfTemplateProps>(({ record, logs, transactions, settings = defaultPdfSettings }, ref) => {
   const totalTx = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+
+  const themeColors = {
+    modern: { primary: '#1e3a8a', light: '#eff6ff', border: '#bfdbfe', text: '#1e40af' },
+    classic: { primary: '#374151', light: '#f3f4f6', border: '#9ca3af', text: '#111827' },
+    minimal: { primary: '#000000', light: '#ffffff', border: '#e5e7eb', text: '#000000' }
+  };
+  
+  const colors = themeColors[settings.theme] || themeColors.modern;
 
   const calculateWarrantyInfo = (createdAt: string, years: number) => {
     if (!years || years <= 0) return 'Yok / Bitti';
     const startDate = parseISO(createdAt);
     const endDate = addYears(startDate, years);
     const today = new Date();
-    // Reset time to start of day for accurate day difference
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endDateStart = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
     const diffDays = differenceInDays(endDateStart, todayStart);
@@ -31,37 +65,37 @@ export const PdfTemplate = React.forwardRef<HTMLDivElement, PdfTemplateProps>(({
       data-pdf-template="true"
       className="bg-[#ffffff] text-[#000000] p-8"
       style={{
-        width: '794px', // Standard A4 width at 96dpi
-        minHeight: '1123px', // Standard A4 height at 96dpi
+        width: '794px',
+        minHeight: '1123px',
         fontFamily: "'Inter', sans-serif",
         backgroundColor: '#ffffff',
         color: '#000000'
       }}
     >
       {/* Header */}
-      <div className="mb-4 w-full flex justify-between items-center border-b-2 pb-4" style={{ borderColor: '#1e3a8a' }}>
+      <div className="mb-4 w-full flex justify-between items-center border-b-2 pb-4" style={{ borderColor: colors.primary }}>
         <div>
-          <div className="text-[#1e3a8a] font-bold text-2xl tracking-tighter">BÖLGE MERKEZ SERVİSİ</div>
-          <div className="text-gray-500 text-xs font-medium uppercase tracking-[0.2em]">Teknik Hizmetler ve Çözüm Merkezi</div>
+          <div className="font-bold text-2xl tracking-tighter whitespace-pre-wrap" style={{ color: colors.primary }}>{settings.topTitle}</div>
+          <div className="text-gray-500 text-xs font-medium uppercase tracking-[0.2em] whitespace-pre-wrap">{settings.topSubtitle}</div>
         </div>
         <div className="text-right">
-          <div className="text-[#1e3a8a] font-bold text-sm">7/24 MÜŞTERİ HİZMETLERİ</div>
-          <div className="text-gray-600 font-bold text-lg">0850 305 29 96</div>
+          <div className="font-bold text-sm whitespace-pre-wrap" style={{ color: colors.primary }}>{settings.topPhoneTitle}</div>
+          <div className="text-gray-600 font-bold text-lg whitespace-pre-wrap">{settings.topPhone}</div>
         </div>
       </div>
 
       {/* Blue Bar */}
-      <div className="flex justify-between items-center px-4 py-1.5 text-xs font-medium" style={{ backgroundColor: '#1e3a8a', color: '#ffffff' }}>
+      <div className="flex justify-between items-center px-4 py-1.5 text-xs font-medium" style={{ backgroundColor: colors.primary, color: '#ffffff' }}>
         <div>— SERVİS FORMU —</div>
         <div>Servis No: <span className="font-bold text-base">#{record.serviceId}</span></div>
         <div>Kayıt: {format(new Date(record.createdAt), 'dd.MM.yyyy HH:mm')} &nbsp;&nbsp;&nbsp; Dok: BMS-2026-8130</div>
       </div>
 
-      <div className="grid grid-cols-2 mt-4 text-xs h-[160px]">
+      <div className="grid grid-cols-2 mt-4 text-xs">
         {/* Customer Info */}
-        <div className="border" style={{ borderColor: '#bfdbfe' }}>
-          <div className="font-bold px-3 py-1.5 border-b uppercase" style={{ backgroundColor: '#eff6ff', color: '#1e3a8a', borderColor: '#bfdbfe' }}>MÜŞTERİ BİLGİLERİ</div>
-          <div className="p-3 space-y-3">
+        <div className="border" style={{ borderColor: colors.border }}>
+          <div className="font-bold px-3 py-1.5 border-b uppercase" style={{ backgroundColor: colors.light, color: colors.primary, borderColor: colors.border }}>MÜŞTERİ BİLGİLERİ</div>
+          <div className="p-3 space-y-2">
             <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Ad Soyad</span><span className="font-bold">{record.customerName}</span></div>
             <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Telefon</span><span>{record.customerPhone1} {record.customerPhone2 ? ` / ${record.customerPhone2}` : ''}</span></div>
             <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Adres</span><span>{record.customerAddress}, {record.customerDistrict} / {record.customerCity}</span></div>
@@ -72,54 +106,54 @@ export const PdfTemplate = React.forwardRef<HTMLDivElement, PdfTemplateProps>(({
         </div>
         
         {/* Device Info */}
-        <div className="border border-l-0" style={{ borderColor: '#bfdbfe' }}>
-          <div className="font-bold px-3 py-1.5 border-b uppercase" style={{ backgroundColor: '#eff6ff', color: '#1e3a8a', borderColor: '#bfdbfe' }}>CİHAZ BİLGİLERİ</div>
-          <div className="p-3 space-y-3">
+        <div className="border border-l-0" style={{ borderColor: colors.border }}>
+          <div className="font-bold px-3 py-1.5 border-b uppercase" style={{ backgroundColor: colors.light, color: colors.primary, borderColor: colors.border }}>CİHAZ BİLGİLERİ</div>
+          <div className="p-3 space-y-2">
             <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Marka / Tür</span><span className="font-bold">{record.deviceBrand}&nbsp;&nbsp;&nbsp;{record.deviceType}</span></div>
             <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Model</span><span>{record.deviceModel || '—'}</span></div>
             <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Seri No</span><span>{record.deviceSerialNo || '—'}</span></div>
             <div className="grid grid-cols-[100px_1fr]"><span className="font-bold" style={{ color: '#ef4444' }}>Arıza</span><span className="font-bold" style={{ color: '#ef4444' }}>{record.faultDescription || '—'}</span></div>
             <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Garanti Bitiş</span><span className="font-medium" style={{ color: '#16a34a' }}>{calculateWarrantyInfo(record.createdAt, record.warrantyYears)}</span></div>
-            <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Durum</span><span className="font-medium" style={{ color: '#2563eb' }}>{record.status}</span></div>
+            <div className="grid grid-cols-[100px_1fr]"><span style={{ color: '#6b7280' }}>Durum</span><span className="font-medium" style={{ color: colors.text }}>{record.status}</span></div>
           </div>
         </div>
       </div>
 
       {/* Diagnostics & Operations */}
-      <div className="border mt-4 text-xs" style={{ borderColor: '#bfdbfe' }}>
-        <div className="font-bold px-3 py-1.5 border-b uppercase" style={{ backgroundColor: '#eff6ff', color: '#1e3a8a', borderColor: '#bfdbfe' }}>TEKNİSYEN ARIZA TESPİTİ VE YAPILAN İŞLEMLER</div>
-        <div className="grid grid-cols-[120px_1fr] border-b" style={{ borderColor: '#dbeafe' }}>
-          <div className="p-3 border-r" style={{ color: '#6b7280', borderColor: '#dbeafe' }}>Arıza Tespiti</div>
+      <div className="border mt-6 text-xs" style={{ borderColor: colors.border }}>
+        <div className="font-bold px-3 py-1.5 border-b uppercase" style={{ backgroundColor: colors.light, color: colors.primary, borderColor: colors.border }}>TEKNİSYEN ARIZA TESPİTİ VE YAPILAN İŞLEMLER</div>
+        <div className="grid grid-cols-[120px_1fr] border-b" style={{ borderColor: colors.border }}>
+          <div className="p-3 border-r" style={{ color: '#6b7280', borderColor: colors.border }}>Arıza Tespiti</div>
           <div className="p-3 whitespace-pre-wrap font-bold">{record.faultDiagnosis || '—'}</div>
         </div>
-        <div className="grid grid-cols-[120px_1fr] border-b" style={{ borderColor: '#dbeafe' }}>
-          <div className="p-3 border-r" style={{ color: '#6b7280', borderColor: '#dbeafe' }}>Yapılan İşlemler</div>
+        <div className="grid grid-cols-[120px_1fr] border-b" style={{ borderColor: colors.border }}>
+          <div className="p-3 border-r" style={{ color: '#6b7280', borderColor: colors.border }}>Yapılan İşlemler</div>
           <div className="p-3 whitespace-pre-wrap">{record.actionsTaken || '—'}</div>
         </div>
-        <div className="grid grid-cols-[120px_1fr] border-b" style={{ borderColor: '#dbeafe' }}>
-          <div className="p-3 border-r" style={{ color: '#6b7280', borderColor: '#dbeafe' }}>Kullanılan Parça</div>
+        <div className="grid grid-cols-[120px_1fr] border-b" style={{ borderColor: colors.border }}>
+          <div className="p-3 border-r" style={{ color: '#6b7280', borderColor: colors.border }}>Kullanılan Parça</div>
           <div className="p-3 whitespace-pre-wrap">{record.partsUsed || '—'}</div>
         </div>
-        <div className="grid grid-cols-[120px_1fr]" style={{ backgroundColor: '#eff6ff' }}>
-          <div className="p-3 font-bold border-r" style={{ color: '#374151', borderColor: '#dbeafe' }}>Tamir Fiyatı</div>
-          <div className="p-3 font-bold text-sm" style={{ color: '#1d4ed8' }}>{record.repairPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>
+        <div className="grid grid-cols-[120px_1fr]" style={{ backgroundColor: colors.light }}>
+          <div className="p-3 font-bold border-r" style={{ color: '#374151', borderColor: colors.border }}>Tamir Fiyatı</div>
+          <div className="p-3 font-bold text-sm" style={{ color: colors.primary }}>{record.repairPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>
         </div>
       </div>
 
       {/* Logs Table */}
       {logs.length > 0 && (
-        <div className="mt-4 border text-xs" style={{ borderColor: '#bfdbfe' }}>
-          <div className="grid grid-cols-[100px_150px_1fr] font-bold border-b uppercase" style={{ backgroundColor: '#eff6ff', color: '#1e3a8a', borderColor: '#bfdbfe' }}>
-            <div className="p-2 border-r" style={{ borderColor: '#bfdbfe' }}>TARİH</div>
-            <div className="p-2 border-r" style={{ borderColor: '#bfdbfe' }}>İŞLEM</div>
+        <div className="mt-4 border text-xs" style={{ borderColor: colors.border }}>
+          <div className="grid grid-cols-[100px_150px_1fr] font-bold border-b uppercase" style={{ backgroundColor: colors.light, color: colors.primary, borderColor: colors.border }}>
+            <div className="p-2 border-r" style={{ borderColor: colors.border }}>TARİH</div>
+            <div className="p-2 border-r" style={{ borderColor: colors.border }}>İŞLEM</div>
             <div className="p-2">AÇIKLAMA</div>
           </div>
           {logs.map((log) => (
-            <div key={log.id} className="grid grid-cols-[100px_150px_1fr] border-b last:border-0" style={{ borderColor: '#dbeafe' }}>
-              <div className="p-2 border-r" style={{ color: '#6b7280', borderColor: '#dbeafe' }}>
+            <div key={log.id} className="grid grid-cols-[100px_150px_1fr] border-b last:border-0" style={{ borderColor: colors.light }}>
+              <div className="p-2 border-r" style={{ color: '#6b7280', borderColor: colors.light }}>
                 <div className="whitespace-pre-wrap">{format(new Date(log.createdAt), 'dd.MM.yyyy\nHH:mm')}</div>
               </div>
-              <div className="p-2 border-r font-bold" style={{ borderColor: '#dbeafe' }}>{log.actionName}</div>
+              <div className="p-2 border-r font-bold" style={{ borderColor: colors.light }}>{log.actionName}</div>
               <div className="p-2 whitespace-pre-wrap">{log.description}</div>
             </div>
           ))}
@@ -128,48 +162,63 @@ export const PdfTemplate = React.forwardRef<HTMLDivElement, PdfTemplateProps>(({
 
       {/* Financial Transactions Table */}
       {transactions.length > 0 && (
-        <div className="mt-4 border text-xs" style={{ borderColor: '#bfdbfe' }}>
-          <div className="grid grid-cols-[100px_1fr_100px_100px_100px] font-bold border-b uppercase" style={{ backgroundColor: '#eff6ff', color: '#1e3a8a', borderColor: '#bfdbfe' }}>
-            <div className="p-2 border-r" style={{ borderColor: '#bfdbfe' }}>TARİH</div>
-            <div className="p-2 border-r" style={{ borderColor: '#bfdbfe' }}>TAHSİL EDEN</div>
-            <div className="p-2 border-r" style={{ borderColor: '#bfdbfe' }}>ÖDEME ŞEKLİ</div>
-            <div className="p-2 border-r" style={{ borderColor: '#bfdbfe' }}>DURUM</div>
+        <div className="mt-4 border text-xs" style={{ borderColor: colors.border }}>
+          <div className="grid grid-cols-[100px_1fr_100px_100px_100px] font-bold border-b uppercase" style={{ backgroundColor: colors.light, color: colors.primary, borderColor: colors.border }}>
+            <div className="p-2 border-r" style={{ borderColor: colors.border }}>TARİH</div>
+            <div className="p-2 border-r" style={{ borderColor: colors.border }}>TAHSİL EDEN</div>
+            <div className="p-2 border-r" style={{ borderColor: colors.border }}>ÖDEME ŞEKLİ</div>
+            <div className="p-2 border-r" style={{ borderColor: colors.border }}>DURUM</div>
             <div className="p-2 text-right">TUTAR</div>
           </div>
           {transactions.map((tx) => (
-            <div key={tx.id} className="grid grid-cols-[100px_1fr_100px_100px_100px] border-b" style={{ borderColor: '#dbeafe' }}>
-              <div className="p-2 border-r" style={{ color: '#6b7280', borderColor: '#dbeafe' }}>{format(new Date(tx.createdAt), 'dd.MM.yyyy')}</div>
-              <div className="p-2 border-r" style={{ borderColor: '#dbeafe' }}>{tx.actor || '—'}</div>
-              <div className="p-2 border-r" style={{ borderColor: '#dbeafe' }}>{tx.method}</div>
-              <div className="p-2 border-r" style={{ borderColor: '#dbeafe' }}>{tx.status}</div>
+            <div key={tx.id} className="grid grid-cols-[100px_1fr_100px_100px_100px] border-b" style={{ borderColor: colors.light }}>
+              <div className="p-2 border-r" style={{ color: '#6b7280', borderColor: colors.light }}>{format(new Date(tx.createdAt), 'dd.MM.yyyy')}</div>
+              <div className="p-2 border-r" style={{ borderColor: colors.light }}>{tx.actor || '—'}</div>
+              <div className="p-2 border-r" style={{ borderColor: colors.light }}>{tx.method}</div>
+              <div className="p-2 border-r" style={{ borderColor: colors.light }}>{tx.status}</div>
               <div className="p-2 text-right font-bold">{tx.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>
             </div>
           ))}
-          <div className="grid grid-cols-[auto_100px] font-bold" style={{ backgroundColor: '#eff6ff' }}>
+          <div className="grid grid-cols-[auto_100px] font-bold" style={{ backgroundColor: colors.light }}>
             <div className="p-2 text-right" style={{ color: '#374151' }}>TOPLAM TAHSİLAT:</div>
-            <div className="p-2 text-right text-sm" style={{ color: '#1e40af' }}>{totalTx.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>
+            <div className="p-2 text-right text-sm" style={{ color: colors.primary }}>{totalTx.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</div>
           </div>
         </div>
       )}
 
       {/* Signatures */}
-      <div className="grid grid-cols-2 mt-6 border text-xs text-center" style={{ borderColor: '#bfdbfe' }}>
-        <div className="border-r p-4" style={{ borderColor: '#bfdbfe' }}>
-          <h3 className="font-bold uppercase" style={{ color: '#1e3a8a' }}>MÜŞTERİ İMZASI</h3>
-          <div className="h-24 flex items-center justify-center my-2">
-            {record.customerSignature ? (
-              <img src={record.customerSignature} className="max-h-full" alt="Müşteri İmzası" style={{ filter: 'brightness(0)' }} />
-            ) : (
-              <span style={{ color: '#d1d5db' }}>İmza Yok</span>
-            )}
+      <div className="grid grid-cols-2 mt-6 border text-xs text-center" style={{ borderColor: colors.border }}>
+        <div className="border-r p-4" style={{ borderColor: colors.border }}>
+          <h3 className="font-bold uppercase" style={{ color: colors.primary }}>MÜŞTERİ İMZALARI</h3>
+          <div className="grid grid-cols-2 gap-4 my-2">
+            <div>
+                <p className="text-[9px] font-bold text-muted-foreground uppercase">Kayıt</p>
+                <div className="h-20 flex items-center justify-center">
+                    {record.intakeSignature || record.customerSignature ? (
+                    <img src={record.intakeSignature || record.customerSignature} className="max-h-full" alt="Müşteri Kayıt İmzası" style={{ filter: 'brightness(0)' }} />
+                    ) : (
+                    <span style={{ color: '#d1d5db' }}>İmza Yok</span>
+                    )}
+                </div>
+            </div>
+            <div>
+                <p className="text-[9px] font-bold text-muted-foreground uppercase">Teslimat</p>
+                <div className="h-20 flex items-center justify-center">
+                    {record.deliverySignature ? (
+                    <img src={record.deliverySignature} className="max-h-full" alt="Müşteri Teslimat İmzası" style={{ filter: 'brightness(0)' }} />
+                    ) : (
+                    <span style={{ color: '#d1d5db' }}>İmza Yok</span>
+                    )}
+                </div>
+            </div>
           </div>
           <div className="mx-10 pt-2 font-medium border-t" style={{ borderColor: '#d1d5db' }}>{record.customerName}</div>
           <div className="mt-4 text-[9px] text-left opacity-70" style={{ color: '#6b7280' }}>
-            Yapılan işlemleri, değiştirilen parçaları, ücret bilgisini ve garanti şartlarını kontrol ettim; eksiksiz teslim aldığımı beyan ve kabul ederim.
+            Yapılan işlemleri, değiştirilen parçaları, ücret bilgisini ve garanti şartlarını kontrol ettim; cihazımı eksiksiz teslim aldığımı beyan ve kabul ederim.
           </div>
         </div>
         <div className="p-4">
-          <h3 className="font-bold uppercase" style={{ color: '#1e3a8a' }}>TEKNİSYEN İMZASI</h3>
+          <h3 className="font-bold uppercase" style={{ color: colors.primary }}>TEKNİSYEN İMZASI</h3>
           <div className="h-24 flex items-center justify-center my-2">
             {record.technicianSignature ? (
                <img src={record.technicianSignature} className="max-h-full" alt="Teknisyen İmzası" style={{ filter: 'brightness(0)' }} />
@@ -226,15 +275,12 @@ export const PdfTemplate = React.forwardRef<HTMLDivElement, PdfTemplateProps>(({
         
         <div className="px-6 py-3 flex justify-between items-center text-xs" style={{ backgroundColor: '#1e3a8a', color: '#ffffff' }}>
           <div>
-            <div style={{ color: '#d1d5db', fontSize: '10px' }}>İKLİM ISITMA & SOĞUTMA SİSTEMLERİ</div>
-            <div className="font-bold text-base mb-2">BÖLGE MERKEZ<br/>SERVİSİ</div>
-            <div className="flex items-center gap-1 mb-1">📞 0850 305 29 96</div>
-            <div className="flex items-center gap-1" style={{ color: '#d1d5db' }}>🌐 bolgeservisarayin.com</div>
+            <div style={{ color: '#d1d5db', fontSize: '10px' }} className="whitespace-pre-wrap">{settings.bottomCompany}</div>
+            <div className="font-bold text-base mb-2 whitespace-pre-wrap">{settings.bottomBrand}</div>
+            <div className="flex items-center gap-1 mb-1 whitespace-pre-wrap">{settings.bottomPhone}</div>
+            <div className="flex items-center gap-1 whitespace-pre-wrap" style={{ color: '#d1d5db' }}>{settings.bottomWebsite}</div>
           </div>
           <div className="text-center">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full font-bold" style={{ backgroundColor: '#22c55e', color: '#ffffff' }}>
-               WhatsApp Destek Hattı
-            </div>
           </div>
           <div className="text-right text-[10px] space-y-1" style={{ color: '#e5e7eb' }}>
             <div>Garanti kapsamındaki servis talepleri</div>

@@ -16,6 +16,8 @@ const StatusBadge = ({ status }: { status: string }) => {
   if (status.includes('Yönlendir')) colorClass = 'border-orange-500/30 text-orange-400 hover:bg-orange-500/10';
   else if (status.includes('Atölye')) colorClass = 'border-purple-500/30 text-purple-400 hover:bg-purple-500/10';
   else if (status.includes('Tamamlandı') || status.includes('Bakım Yapıldı')) colorClass = 'border-green-500/30 text-green-400 hover:bg-green-500/10';
+  else if (status.includes('İptal') || status.includes('Anlaşılamadı') || status.includes('Ulaşılamadı')) colorClass = 'border-red-500/30 text-red-400 hover:bg-red-500/10';
+  else if (status.includes('Beklemede') || status.includes('Garantili')) colorClass = 'border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10';
   
   return (
     <Badge variant="outline" className={`rounded-full px-3 py-1 text-xs font-normal bg-transparent ${colorClass}`}>

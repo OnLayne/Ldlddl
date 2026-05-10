@@ -67,7 +67,12 @@ export const loginWithGoogle = async () => {
   try {
     await signInWithPopup(auth, provider);
   } catch (error) {
+    if (error instanceof Error) {
+        console.error("Auth Error Code:", (error as any).code);
+        console.error("Auth Error Message:", error.message);
+    }
     console.error("Login failed", error);
+    throw error;
   }
 };
 

@@ -21,6 +21,7 @@ export interface ServiceRecord {
   deviceSerialNo?: string;
   faultDescription: string;
   warrantyYears: number;
+  warrantyStartDate?: string;
   
   technicianName: string;
   operatorNote?: string;
@@ -31,7 +32,9 @@ export interface ServiceRecord {
   repairPrice: number;
   repairEndDate?: string;
   
-  customerSignature?: string; // data URI
+  customerSignature?: string; // data URI (Deprecated/Legacy)
+  intakeSignature?: string; // data URI
+  deliverySignature?: string; // data URI
   technicianSignature?: string; // data URI
   
   userId: string;
@@ -59,4 +62,11 @@ export interface Photo {
   id: string;
   url: string;
   createdAt: string;
+}
+
+export interface PdfLog {
+  id: string;
+  createdAt: string;
+  operator: string;
+  type: 'Intake' | 'Delivery';
 }
